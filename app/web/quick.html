@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quick Add</title>
+  <link rel="stylesheet" href="quick.css">
+</head>
+<body>
+  <form id="form" autocomplete="off">
+    <div class="context" id="context" hidden>
+      <p class="ask" id="ask"></p>
+      <p class="question" id="question"></p>
+    </div>
+    <div class="field">
+      <svg class="glyph" viewBox="236 268 552 488" aria-hidden="true"><g><rect x="268" y="300" width="128" height="424" rx="4"/><rect x="448" y="300" width="128" height="176" rx="4"/><rect x="628" y="300" width="128" height="300" rx="4"/></g></svg>
+      <input id="title" name="title" type="text" placeholder="Add to Board…" aria-label="Task" maxlength="500" spellcheck="true">
+      <textarea id="reply" name="reply" placeholder="Your answer" aria-label="Your answer" maxlength="2000" hidden></textarea>
+    </div>
+    <div class="foot">
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+      <p class="keys" id="keys"><kbd>↩</kbd> Add to Inbox <span class="sep">·</span> <kbd>esc</kbd> Close</p>
+      <button type="button" class="link" id="open-board" hidden>Open Board</button>
+    </div>
+  </form>
+  <script src="quick.js"></script>
+</body>
+</html>

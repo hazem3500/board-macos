@@ -1,0 +1,103 @@
+name: build
+# Builds Board for macOS on GitHub's free macOS runners (this repo is public). The app's source lives in the private
+# hazem3500/oz-board (apps/macos); its macos-v* tag job pushes a snapshot to app/ here and tags vX.Y.Z.
+# Branch pushes: an Apple Silicon build, unit tests and screenshots of the menu bar, a notification and Quick add (demo
+# data, BOARD_DEMO=1). Tags: a universal, ad-hoc signed build whose update bundle is signed with the updater key, then
+# the GitHub release the app's auto-updater reads (latest.json).
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    if: github.ref_type == 'branch'
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: app/src-tauri }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Icons
+        run: npx --yes @tauri-apps/cli@2 icon app/src-tauri/icons/app-icon.png -o app/src-tauri/icons
+      - name: Unit tests
+        run: cargo test --manifest-path app/src-tauri/Cargo.toml --lib
+      - name: Build
+        working-directory: app
+        run: npx --yes @tauri-apps/cli@2 build --bundles app,dmg --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Check the bundle
+        run: |
+          set -euo pipefail
+          app=app/src-tauri/target/release/bundle/macos/Board.app
+          plutil -p "$app/Contents/Info.plist" | grep -E 'CFBundleIdentifier|CFBundleURLSchemes|NSMessage|board' || true
+          codesign -dv "$app" 2>&1 | grep -E 'Signature|Identifier'
+          ls -la app/src-tauri/target/release/bundle/dmg
+      - name: Screenshots (demo data)
+        run: bash .github/scripts/screenshots.sh app/src-tauri/target/release/bundle/macos/Board.app shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: board-macos-${{ github.sha }}
+          path: |
+            app/src-tauri/target/release/bundle/dmg/*.dmg
+            shots/
+          retention-days: 7
+
+  release:
+    if: github.ref_type == 'tag'
+    runs-on: macos-15
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Version from the tag
+        id: version
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$version" =~ ^[0-9]{1,2}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || { echo "tag must be vX.Y.Z"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          sed -i '' -E "s/^version = \"[^\"]+\"/version = \"$version\"/" app/src-tauri/Cargo.toml
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: 'aarch64-apple-darwin,x86_64-apple-darwin' }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Icons
+        run: npx --yes @tauri-apps/cli@2 icon app/src-tauri/icons/app-icon.png -o app/src-tauri/icons
+      - name: Build (universal, ad-hoc signed; update bundle signed with the updater key)
+        working-directory: app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: npx --yes @tauri-apps/cli@2 build --target universal-apple-darwin --bundles app,dmg --config "{\"version\":\"$VERSION\"}"
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          out=app/src-tauri/target/universal-apple-darwin/release/bundle
+          mkdir -p dist
+          cp "$out"/dmg/*.dmg dist/Board.dmg
+          cp "$out"/macos/Board.app.tar.gz dist/Board.app.tar.gz
+          cp "$out"/macos/Board.app.tar.gz.sig dist/Board.app.tar.gz.sig
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}"
+          jq -n --arg v "$VERSION" --arg sig "$(cat dist/Board.app.tar.gz.sig)" --arg url "$base/Board.app.tar.gz" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{version: $v, notes: "Board for macOS \($v)", pub_date: $date,
+              platforms: {"darwin-aarch64": {signature: $sig, url: $url}, "darwin-x86_64": {signature: $sig, url: $url}}}' > dist/latest.json
+          shasum -a 256 dist/* | tee dist/SHA256SUMS.txt
+          notes=$(printf 'Board for macOS %s.\n\n**Install:** download Board.dmg, drag Board to Applications. The app is not notarized (no paid Apple account), so the first open needs one extra step: open Board once, then System Settings → Privacy & Security → **Open Anyway** (or run `xattr -dr com.apple.quarantine /Applications/Board.app`). Later versions update themselves.\n' "$VERSION")
+          gh release create "v$VERSION" dist/Board.dmg dist/Board.app.tar.gz dist/Board.app.tar.gz.sig dist/latest.json dist/SHA256SUMS.txt \
+            --title "Board for macOS $VERSION" --notes "$notes" --latest

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Merged into the bundle's Info.plist by Tauri. The Services entries call mac.rs ServicesProvider. -->
+  <key>NSServices</key>
+  <array>
+    <dict>
+      <key>NSMenuItem</key>
+      <dict><key>default</key><string>Add to Board</string></dict>
+      <key>NSMessage</key>
+      <string>addToBoard</string>
+      <key>NSPortName</key>
+      <string>Board</string>
+      <key>NSSendTypes</key>
+      <array><string>NSStringPboardType</string><string>public.utf8-plain-text</string></array>
+      <key>NSRequiredContext</key>
+      <dict/>
+    </dict>
+    <dict>
+      <key>NSMenuItem</key>
+      <dict><key>default</key><string>Open in Board</string></dict>
+      <key>NSMessage</key>
+      <string>openInBoard</string>
+      <key>NSPortName</key>
+      <string>Board</string>
+      <key>NSSendTypes</key>
+      <array><string>public.url</string><string>NSStringPboardType</string></array>
+      <key>NSRequiredContext</key>
+      <dict><key>NSTextContent</key><string>URL</string></dict>
+    </dict>
+  </array>
+  <key>NSUserNotificationAlertStyle</key>
+  <string>alert</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.productivity</string>
+</dict>
+</plist>
