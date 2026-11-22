@@ -34,11 +34,15 @@ if entry is None:
     apps.append(entry)
 print('before', {k: entry.get(k) for k in ('flags', 'auth')})
 entry['auth'] = 7
-entry['flags'] = (entry.get('flags', 0) | 0x2 | 0x4 | 0x8 | 0x10 | 0x40) & ~0x1
+entry['flags'] = (entry.get('flags', 0) & ~0x38) | 0x10  # alert style: Alerts (stay until dismissed)
 plistlib.dump(data, open(path, 'wb'), fmt=plistlib.FMT_BINARY)
 print('after', {k: entry.get(k) for k in ('flags', 'auth')})
 PY
-killall cfprefsd usernoted NotificationCenter 2>/dev/null; sleep 3
+echo '--- Focus state:'; ls ~/Library/DoNotDisturb/DB/ 2>&1; for f in Assertions ModeConfigurations; do plutil -p ~/Library/DoNotDisturb/DB/$f.json 2>/dev/null | head -40; done
+# Screen sharing (how the runner is watched) turns on "Do Not Disturb while mirroring": switch that off.
+defaults write com.apple.ncprefs dnd_mirroring -int 0 2>/dev/null
+defaults -currentHost write com.apple.notificationcenterui doNotDisturb -bool false 2>/dev/null
+killall cfprefsd usernoted NotificationCenter donotdisturbd 2>/dev/null; sleep 3
 
 # Second launch: the demo cards arrive as notifications and the menu-bar count shows.
 launch; sleep 5
@@ -51,7 +55,7 @@ read -r x y w h <<<"$(echo "$pos" | tr -d ' ' | tr ',' ' ')"
 if [[ -n "${h:-}" ]]; then cliclick "c:$((x + w / 2)),$((y + h / 2))"; fi
 sleep 1.5; shot 04-menu-bar
 # Into the first card's submenu (its answers).
-cliclick "kp:arrow-down" "kp:arrow-down" "kp:arrow-right" 2>&1 | head -2
+cliclick "kp:arrow-down" "kp:arrow-right" 2>&1 | head -2
 sleep 1; shot 05-menu-answer
 cliclick "kp:esc" "kp:esc" "kp:esc" 2>/dev/null; sleep 1
 # Quick add, opened the way Shortcuts or a link would.
@@ -59,8 +63,10 @@ open "board://add?text=Book%20the%20dentist%20for%20next%20week"
 sleep 2; shot 06-quick-add
 cliclick "kp:esc" 2>/dev/null
 # Notification Center with the cards (click the clock).
-cliclick "c:$(( $(system_profiler SPDisplaysDataType 2>/dev/null | awk '/Resolution/{print $2; exit}') - 60 )),12" 2>/dev/null
+log show --last 1m --style compact --predicate 'process == "usernoted"' 2>/dev/null | grep -iE "present|focus|suppress|dnd" | tail -8
+cliclick "c:960,11" 2>/dev/null
 sleep 2; shot 07-notification-center
+cliclick "m:880,120" 2>/dev/null; sleep 1; shot 08-notification-hover
 cliclick "kp:esc" 2>/dev/null
 quit
 ls -la "$out"
