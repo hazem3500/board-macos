@@ -7,8 +7,8 @@ Cloudflare Access.
 
 ## Install
 
-1. Download **[Board.dmg](https://github.com/hazem3500/board-macos/releases/latest/download/Board.dmg)** and drag
-   Board to Applications.
+1. Download **Board.dmg** from the [newest release](https://github.com/hazem3500/board-macos/releases) and drag Board
+   to Applications.
 2. First open only (the app isn't notarized): open Board, close the warning, then **System Settings → Privacy &
    Security → Open Anyway**. Or in Terminal: `xattr -dr com.apple.quarantine /Applications/Board.app`.
 3. Sign in to the Board in the window (Cloudflare Access, as in the browser), then press **Connect** on the
