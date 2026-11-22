@@ -1,6 +1,6 @@
 [package]
 name = "board-mac"
-version = "0.1.0"
+version = "1.0.0"
 description = "Board for macOS: the oz-home Board in a native Mac window, with a menu-bar count and answerable notifications"
 edition = "2021"
 publish = false

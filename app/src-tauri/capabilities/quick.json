@@ -1,7 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "quick",
-  "description": "The local Quick add / reply panel only. The main window shows the remote Board page and gets no IPC.",
-  "windows": ["quick"],
-  "permissions": ["core:default"]
+  "description": "The local Quick add / reply panel only. The main window (the remote Board page) gets no capability, so it can't call these commands.",
+  "windows": [
+    "quick"
+  ],
+  "permissions": [
+    "core:default",
+    "allow-panel-info",
+    "allow-panel-hide",
+    "allow-panel-submit",
+    "allow-panel-open-board"
+  ]
 }

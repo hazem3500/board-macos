@@ -26,7 +26,7 @@ use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_updater::UpdaterExt;
 
 use crate::api::{Answer, Api, ApiError, Credential};
-use crate::logic::{board_url, card_url, is_board, js_string, parse_link, parse_page_message, quick_add_body, short, Item, Link, Needs, PageMessage, Work};
+use crate::logic::{Nav, board_url, card_url, is_board, js_string, parse_link, parse_page_message, quick_add_body, short, Item, Link, Needs, PageMessage, Work};
 
 const POLL: Duration = Duration::from_secs(30);
 const UPDATE_EVERY: Duration = Duration::from_secs(6 * 3600);
@@ -113,6 +113,8 @@ const PAGE_SCRIPT: &str = r#"(() => {
     new MutationObserver(() => requestAnimationFrame(tell)).observe(document.documentElement, { attributes: true });
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => requestAnimationFrame(tell));
   });
+  // The app takes messages only once the page has finished loading: say the colour again then.
+  addEventListener('load', () => setTimeout(() => { last = ''; tell() }, 300));
 })();"#;
 
 fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
@@ -132,6 +134,9 @@ fn create_main(app: &AppHandle, visible: bool) -> tauri::Result<WebviewWindow> {
         .on_page_load(|window, payload| {
             if payload.event() == PageLoadEvent::Finished {
                 page_loaded(window.app_handle(), payload.url().clone());
+            } else {
+                // A page still loading can't send messages under the previous page's URL (review, optional hardening).
+                shared(window.app_handle()).state.lock().unwrap().page = None;
             }
         });
     #[cfg(target_os = "macos")]
@@ -139,21 +144,22 @@ fn create_main(app: &AppHandle, visible: bool) -> tauri::Result<WebviewWindow> {
     builder.build()
 }
 
-/// Every navigation in the main window. `board-app://` is the page talking to the app: handled here and cancelled, so
-/// it never leaves the app. Web pages (the Board, Cloudflare Access and its sign-in pages) load in place; anything
-/// else (mailto:, other apps' schemes) goes to macOS.
+/// Every navigation in the main window (logic::navigation, review change 1). `board-app://` is the page talking to the
+/// app: handled here and cancelled, so it never leaves the app. Only the Board and its Access sign-in load in place;
+/// other web pages open in the default browser; only mailto: goes to macOS; anything else is dropped.
 fn on_navigation(app: &AppHandle, url: &Url) -> bool {
-    match url.scheme() {
-        "board-app" => {
+    match logic::navigation(url) {
+        Nav::Load => true,
+        Nav::Message => {
             let (app, url) = (app.clone(), url.clone());
             tauri::async_runtime::spawn(async move { page_message(&app, &url).await });
             false
         }
-        "https" | "http" | "about" | "blob" | "data" | "tauri" => true,
-        _ => {
+        Nav::Browser | Nav::MacOs => {
             let _ = app.opener().open_url(url.as_str(), None::<&str>);
             false
         }
+        Nav::Drop => false,
     }
 }
 
@@ -790,7 +796,7 @@ async fn quick_add(app: &AppHandle, title: &str, note: &str) -> Result<(), Strin
     let (tx, rx) = tokio::sync::oneshot::channel();
     s.pending.lock().unwrap().insert(request.clone(), tx);
     let script = format!(
-        "(async () => {{ let s = -1; try {{ const r = await fetch('/api/board/tasks', {{ method: 'POST', credentials: 'same-origin', redirect: 'manual', headers: {{ accept: 'application/json', 'content-type': 'application/json' }}, body: {body} }}); s = r.type === 'opaqueredirect' ? 0 : r.status }} catch {{}} location.assign('board-app://done?r={request}&s=' + s); if (s === 201 || s === 200) dispatchEvent(new Event('online')) }})()",
+        "(async () => {{ let s = -1; if (location.origin !== 'https://board.zem.cool') return location.assign('board-app://done?r={request}&s=0'); try {{ const r = await fetch('https://board.zem.cool/api/board/tasks', {{ method: 'POST', credentials: 'same-origin', redirect: 'manual', headers: {{ accept: 'application/json', 'content-type': 'application/json' }}, body: {body} }}); s = r.type === 'opaqueredirect' ? 0 : r.status }} catch {{}} location.assign('board-app://done?r={request}&s=' + s); if (s === 201 || s === 200) dispatchEvent(new Event('online')) }})()",
         body = js_string(&body.to_string())
     );
     main.eval(script).map_err(|e| e.to_string())?;
@@ -938,6 +944,28 @@ fn app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     Menu::with_items(app, &[&board, &file, &edit, &view, &window, &help])
 }
 
+/// Demo only (CI): proves the main window can't call the app's commands while the Quick add panel can, and writes
+/// the result to /tmp/board-ipc-probe.txt for the workflow to check.
+async fn ipc_probe(app: AppHandle) {
+    tokio::time::sleep(Duration::from_secs(8)).await;
+    let write = |line: String| {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/board-ipc-probe.txt") {
+            let _ = writeln!(f, "{line}");
+        }
+    };
+    if let Some(main) = main_window(&app) {
+        let _ = main.eval("window.__probe = 'pending'; window.__TAURI_INTERNALS__ ? window.__TAURI_INTERNALS__.invoke('panel_info').then(() => { window.__probe = 'ALLOWED' }, e => { window.__probe = 'denied: ' + e }) : (window.__probe = 'no-ipc')");
+    }
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    if let Some(main) = main_window(&app) {
+        let _ = main.eval_with_callback("String(window.__probe)", move |r| write(format!("main={r}")));
+    }
+    if let Some(quick) = app.get_webview_window("quick") {
+        let _ = quick.eval_with_callback("String(window.__panelOk)", move |r| write(format!("panel={r}")));
+    }
+}
+
 fn first_run(app: &AppHandle) -> bool {
     let Ok(dir) = app.path().app_config_dir() else { return false };
     let marker = dir.join("first-run-done");
@@ -1043,6 +1071,9 @@ pub fn run() {
 
             render(&handle);
             tauri::async_runtime::spawn(poll(handle.clone()));
+            if demo {
+                tauri::async_runtime::spawn(ipc_probe(handle.clone()));
+            }
             if !demo {
                 let update_app = handle.clone();
                 tauri::async_runtime::spawn(async move {

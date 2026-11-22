@@ -1,9 +1,10 @@
 name: build
 # Builds Board for macOS on GitHub's free macOS runners (this repo is public). The app's source lives in the private
-# hazem3500/oz-board (apps/macos); its macos-v* tag job pushes a snapshot to app/ here and tags vX.Y.Z.
-# Branch pushes: an Apple Silicon build, unit tests and screenshots of the menu bar, a notification and Quick add (demo
-# data, BOARD_DEMO=1). Tags: a universal, ad-hoc signed build whose update bundle is signed with the updater key, then
-# the GitHub release the app's auto-updater reads (latest.json).
+# hazem3500/oz-board (apps/macos); its macos-v* tag job pushes a snapshot to app/ on main here and tags vX.Y.Z.
+# Branch pushes: an Apple Silicon build, unit tests, an IPC check (the main window can't call the app's commands) and
+# screenshots with demo data (BOARD_DEMO=1). Tags (only the release deploy key may create them; main only): a
+# universal, ad-hoc signed build whose update bundle is signed with the updater key, then the GitHub release the
+# app's auto-updater reads (latest.json).
 on:
   push:
     branches: ['**']
@@ -14,34 +15,45 @@ permissions:
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
+env:
+  TAURI_CLI: '@tauri-apps/cli@2.12.6'
+  RUST_TOOLCHAIN: '1.100.0'
 jobs:
   build:
     if: github.ref_type == 'branch'
     runs-on: macos-15
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with: { toolchain: '${{ env.RUST_TOOLCHAIN }}' }
       - uses: Swatinem/rust-cache@v2
         with: { workspaces: app/src-tauri }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: 22 }
       - name: Icons
-        run: npx --yes @tauri-apps/cli@2 icon app/src-tauri/icons/app-icon.png -o app/src-tauri/icons
+        run: npx --yes "$TAURI_CLI" icon app/src-tauri/icons/app-icon.png -o app/src-tauri/icons
       - name: Unit tests
-        run: cargo test --manifest-path app/src-tauri/Cargo.toml --lib
+        run: cargo test --locked --manifest-path app/src-tauri/Cargo.toml --lib
       - name: Build
         working-directory: app
-        run: npx --yes @tauri-apps/cli@2 build --bundles app,dmg --config '{"bundle":{"createUpdaterArtifacts":false}}'
+        run: npx --yes "$TAURI_CLI" build --bundles app,dmg --config '{"bundle":{"createUpdaterArtifacts":false}}' -- --locked
       - name: Check the bundle
         run: |
           set -euo pipefail
           app=app/src-tauri/target/release/bundle/macos/Board.app
           plutil -p "$app/Contents/Info.plist" | grep -E 'CFBundleIdentifier|CFBundleURLSchemes|NSMessage|board' || true
           codesign -dv "$app" 2>&1 | grep -E 'Signature|Identifier'
-          ls -la app/src-tauri/target/release/bundle/dmg
-      - name: Screenshots (demo data)
-        run: bash .github/scripts/screenshots.sh app/src-tauri/target/release/bundle/macos/Board.app shots
+      - name: Screenshots and the IPC check (demo data)
+        run: |
+          rm -f /tmp/board-ipc-probe.txt
+          bash .github/scripts/screenshots.sh app/src-tauri/target/release/bundle/macos/Board.app shots
+          echo '--- IPC probe:'; cat /tmp/board-ipc-probe.txt
+          cp /tmp/board-ipc-probe.txt shots/ipc-probe.txt
+          # The Board window must not reach the app's commands; the Quick add panel must.
+          ! grep -q '^main=.*ALLOWED' /tmp/board-ipc-probe.txt
+          grep -q '^main=' /tmp/board-ipc-probe.txt
+          grep -q '^panel=.*true' /tmp/board-ipc-probe.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -58,29 +70,32 @@ jobs:
     environment: release
     permissions:
       contents: write
+    # The only job that sees the updater key: every action pinned to a commit, the CLI and Rust pinned, cargo --locked.
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Version from the tag
+        with: { fetch-depth: 0 }
+      - name: Version from the tag, and only for a commit on main
         id: version
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           [[ "$version" =~ ^[0-9]{1,2}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || { echo "tag must be vX.Y.Z"; exit 1; }
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "tagged commit is not on main"; exit 1; }
+          grep -q "^version = \"$version\"$" app/src-tauri/Cargo.toml || { echo "Cargo.toml version is not $version"; exit 1; }
+          [ "$(jq -r .version app/src-tauri/tauri.conf.json)" = "$version" ] || { echo "tauri.conf.json version is not $version"; exit 1; }
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          sed -i '' -E "s/^version = \"[^\"]+\"/version = \"$version\"/" app/src-tauri/Cargo.toml
-      - uses: dtolnay/rust-toolchain@stable
-        with: { targets: 'aarch64-apple-darwin,x86_64-apple-darwin' }
-      - uses: actions/setup-node@v4
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with: { toolchain: '${{ env.RUST_TOOLCHAIN }}', targets: 'aarch64-apple-darwin,x86_64-apple-darwin' }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: 22 }
       - name: Icons
-        run: npx --yes @tauri-apps/cli@2 icon app/src-tauri/icons/app-icon.png -o app/src-tauri/icons
+        run: npx --yes "$TAURI_CLI" icon app/src-tauri/icons/app-icon.png -o app/src-tauri/icons
       - name: Build (universal, ad-hoc signed; update bundle signed with the updater key)
         working-directory: app
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: npx --yes @tauri-apps/cli@2 build --target universal-apple-darwin --bundles app,dmg --config "{\"version\":\"$VERSION\"}"
+        run: npx --yes "$TAURI_CLI" build --target universal-apple-darwin --bundles app,dmg -- --locked
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -97,7 +112,7 @@ jobs:
             --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '{version: $v, notes: "Board for macOS \($v)", pub_date: $date,
               platforms: {"darwin-aarch64": {signature: $sig, url: $url}, "darwin-x86_64": {signature: $sig, url: $url}}}' > dist/latest.json
-          shasum -a 256 dist/* | tee dist/SHA256SUMS.txt
+          (cd dist && shasum -a 256 Board.dmg Board.app.tar.gz Board.app.tar.gz.sig latest.json) | tee dist/SHA256SUMS.txt
           notes=$(printf 'Board for macOS %s.\n\n**Install:** download Board.dmg, drag Board to Applications. The app is not notarized (no paid Apple account), so the first open needs one extra step: open Board once, then System Settings → Privacy & Security → **Open Anyway** (or run `xattr -dr com.apple.quarantine /Applications/Board.app`). Later versions update themselves.\n' "$VERSION")
           # 0.x is a preview: a pre-release, so the updater (which reads the latest full release) never offers it.
           kind=--latest; [[ "$VERSION" == 0.* ]] && kind=--prerelease

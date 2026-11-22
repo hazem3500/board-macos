@@ -15,7 +15,7 @@
 
   async function refresh() {
     clearTimeout(closeTimer)
-    const info = await invoke('panel_info').catch(() => ({ mode: 'add', prefill: '' }))
+    const info = await invoke('panel_info').then(i => { window.__panelOk = true; return i }).catch(() => ({ mode: 'add', prefill: '' }))
     mode = info.mode === 'reply' ? 'reply' : 'add'
     busy = false
     delete form.dataset.busy

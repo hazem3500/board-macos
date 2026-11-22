@@ -9,6 +9,35 @@ use url::Url;
 /// The only Board the app talks to.
 pub const ORIGIN: &str = "https://board.zem.cool";
 pub const HOST: &str = "board.zem.cool";
+/// The Cloudflare Access team host that serves the Board's sign-in (email code), and Cloudflare's challenge host its
+/// page may embed. Nothing else loads in the main window.
+pub const ACCESS_HOSTS: [&str; 2] = ["oz-cloud.cloudflareaccess.com", "challenges.cloudflare.com"];
+
+/// What the main window does with a navigation (security review change 1).
+#[derive(Debug, PartialEq)]
+pub enum Nav {
+    /// Load in place: the Board, its Access sign-in, about:/blob:/data:.
+    Load,
+    /// `board-app:`: the Board page talking to the app; handled and cancelled.
+    Message,
+    /// Any other web page: the default browser.
+    Browser,
+    /// mailto: only: handed to macOS.
+    MacOs,
+    /// Every other scheme (file:, smb:, other apps' schemes…): dropped.
+    Drop,
+}
+
+pub fn navigation(url: &Url) -> Nav {
+    match url.scheme() {
+        "board-app" => Nav::Message,
+        "about" | "blob" | "data" => Nav::Load,
+        "https" if url.port().is_none() && (is_board(url) || url.host_str().is_some_and(|h| ACCESS_HOSTS.contains(&h))) => Nav::Load,
+        "https" | "http" => Nav::Browser,
+        "mailto" => Nav::MacOs,
+        _ => Nav::Drop,
+    }
+}
 
 /// One "Waiting on you" card as `/api/device/needs` and `/api/device/cards/:id` return it (devices.mjs `deviceItem`).
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -307,6 +336,26 @@ mod tests {
         assert_eq!(body["labels"]["status"], "todo");
         assert!(quick_add_body("   ", "", "x").is_none());
         assert_eq!(quick_add_body("T", " note ", "x").unwrap()["text"], "T\n\nnote");
+    }
+
+    #[test]
+    fn main_window_navigation() {
+        let nav = |u: &str| navigation(&Url::parse(u).unwrap());
+        assert_eq!(nav("https://board.zem.cool/oz/"), Nav::Load);
+        assert_eq!(nav("https://oz-cloud.cloudflareaccess.com/cdn-cgi/access/login/board.zem.cool"), Nav::Load);
+        assert_eq!(nav("about:blank"), Nav::Load);
+        assert_eq!(nav("board-app://theme?bg=x"), Nav::Message);
+        assert_eq!(nav("file:///Applications/Calculator.app"), Nav::Drop);
+        assert_eq!(nav("smb://x/y"), Nav::Drop);
+        assert_eq!(nav("zoommtg://x"), Nav::Drop);
+        assert_eq!(nav("x-apple.systempreferences:com.apple.preference.security"), Nav::Drop);
+        assert_eq!(nav("tauri://localhost/"), Nav::Drop);
+        assert_eq!(nav("https://evil.example/"), Nav::Browser);
+        assert_eq!(nav("http://board.zem.cool/"), Nav::Browser);
+        assert_eq!(nav("https://board.zem.cool.evil.example/"), Nav::Browser);
+        assert_eq!(nav("https://board.zem.cool:8443/"), Nav::Browser);
+        assert_eq!(nav("https://evil.cloudflareaccess.com/"), Nav::Browser);
+        assert_eq!(nav("mailto:a@b.c"), Nav::MacOs);
     }
 
     #[test]

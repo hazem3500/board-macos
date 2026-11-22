@@ -20,8 +20,9 @@ should have. Install: the latest `Board.dmg` from https://github.com/hazem3500/b
 Reads, answers and Work mode use the signed device routes (`/api/device/*`), the same design and server code as the
 Android app: the Board page hands the app a one-time code and the device-tier Access token (`pwa.js` `pairAppUrl`,
 caught inside the app's own web view), the app makes a P-256 key and keeps the credential in the login Keychain. The
-Mac shows in the Board's Devices list and can be revoked there. Security packet:
-`/home/hazem/OpenBot/Shared/status/board-macos-20261122/SECURITY-PACKET.md`.
+Mac shows in the Board's Devices list and can be revoked there. Only the Board and its Access sign-in load in the main
+window (other sites open in the browser; only mailto: goes to macOS), and the app's commands are granted to the Quick
+add panel only.
 
 ## First open (not notarized)
 
@@ -36,7 +37,8 @@ once per update to let Board read its Keychain item ("Always Allow").
 - Mac builds run free on GitHub's macOS runners in the public `hazem3500/board-macos`: a `macos-vX.Y.Z` tag on a main
   commit here pushes a snapshot of this folder to its `app/` and tags `vX.Y.Z`; its workflow builds a universal app,
   signs the update bundle (minisign key in its tag-only `release` environment) and publishes `Board.dmg`,
-  `Board.app.tar.gz`(+`.sig`), `latest.json` and checksums. Branch pushes there build and take screenshots with demo
+  `Board.app.tar.gz`(+`.sig`), `latest.json` and checksums. Bump `version` in `Cargo.toml`, `Cargo.lock` and
+  `tauri.conf.json` to the tag's version first (the release job checks they match and builds with `--locked`). Branch pushes there build and take screenshots with demo
   data (`BOARD_DEMO=1`).
 - Icons: `icon-src/macos.svg` → `src-tauri/icons/app-icon.png` (1024) and `icon-src/tray.svg` → `tray.png` (44, a
   template image); CI generates the `.icns` with `tauri icon`.
