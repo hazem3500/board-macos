@@ -38,12 +38,13 @@ entry['flags'] = (entry.get('flags', 0) & ~0x38) | 0x10  # alert style: Alerts (
 plistlib.dump(data, open(path, 'wb'), fmt=plistlib.FMT_BINARY)
 print('after', {k: entry.get(k) for k in ('flags', 'auth')})
 PY
-echo '--- Focus state:'; ls ~/Library/DoNotDisturb/DB/ 2>&1; for f in Assertions ModeConfigurations; do plutil -p ~/Library/DoNotDisturb/DB/$f.json 2>/dev/null | head -40; done
+echo '--- Focus state:'; ls ~/Library/DoNotDisturb/DB/ 2>&1; head -c 1500 ~/Library/DoNotDisturb/DB/ModeConfigurations.json; echo
 # Screen sharing (how the runner is watched) turns on "Do Not Disturb while mirroring": switch that off.
 defaults write com.apple.ncprefs dnd_mirroring -int 0 2>/dev/null
 defaults -currentHost write com.apple.notificationcenterui doNotDisturb -bool false 2>/dev/null
 killall cfprefsd usernoted NotificationCenter donotdisturbd 2>/dev/null; sleep 3
 
+osascript -e 'display notification "If this shows, banners work on the runner" with title "Probe"'; sleep 2; shot 01b-probe
 # Second launch: the demo cards arrive as notifications and the menu-bar count shows.
 launch; sleep 5
 shot 02-notifications
@@ -61,10 +62,11 @@ cliclick "kp:esc" "kp:esc" "kp:esc" 2>/dev/null; sleep 1
 # Quick add, opened the way Shortcuts or a link would.
 open "board://add?text=Book%20the%20dentist%20for%20next%20week"
 sleep 2; shot 06-quick-add
-cliclick "kp:esc" 2>/dev/null
+osascript -e 'tell application "System Events" to key code 53' 2>/dev/null; sleep 1
+log show --last 2m --style compact --predicate 'subsystem == "com.apple.donotdisturb" OR (process == "usernoted" AND eventMessage CONTAINS "as none")' 2>/dev/null | tail -12
 # Notification Center with the cards (click the clock).
 log show --last 1m --style compact --predicate 'process == "usernoted"' 2>/dev/null | grep -iE "present|focus|suppress|dnd" | tail -8
-cliclick "c:960,11" 2>/dev/null
+osascript -e 'tell application "System Events" to tell process "ControlCenter" to click (first menu bar item of menu bar 1 whose description contains "Clock")' 2>&1 | head -2; cliclick "c:975,11" 2>/dev/null
 sleep 2; shot 07-notification-center
 cliclick "m:880,120" 2>/dev/null; sleep 1; shot 08-notification-hover
 cliclick "kp:esc" 2>/dev/null
