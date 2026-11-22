@@ -99,5 +99,7 @@ jobs:
               platforms: {"darwin-aarch64": {signature: $sig, url: $url}, "darwin-x86_64": {signature: $sig, url: $url}}}' > dist/latest.json
           shasum -a 256 dist/* | tee dist/SHA256SUMS.txt
           notes=$(printf 'Board for macOS %s.\n\n**Install:** download Board.dmg, drag Board to Applications. The app is not notarized (no paid Apple account), so the first open needs one extra step: open Board once, then System Settings → Privacy & Security → **Open Anyway** (or run `xattr -dr com.apple.quarantine /Applications/Board.app`). Later versions update themselves.\n' "$VERSION")
+          # 0.x is a preview: a pre-release, so the updater (which reads the latest full release) never offers it.
+          kind=--latest; [[ "$VERSION" == 0.* ]] && kind=--prerelease
           gh release create "v$VERSION" dist/Board.dmg dist/Board.app.tar.gz dist/Board.app.tar.gz.sig dist/latest.json dist/SHA256SUMS.txt \
-            --title "Board for macOS $VERSION" --notes "$notes" --latest
+            --title "Board for macOS $VERSION" --notes "$notes" "$kind"
