@@ -1,5 +1,5 @@
 // The Quick add / reply panel (a local page with the app's IPC; the Board page itself never gets IPC).
-// Add: one line to the Board's Inbox (Shift+Return for a note on the next line is not offered: keep it one line).
+// Add: one line to the Board's Inbox.
 // Reply: the card's question and a text answer, sent through the signed device route.
 (() => {
   const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args)

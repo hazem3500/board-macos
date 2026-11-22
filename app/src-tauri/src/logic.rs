@@ -273,7 +273,7 @@ mod tests {
     fn links() {
         assert_eq!(parse_link("board://needs"), Link::View("needs".into()));
         assert_eq!(parse_link("board://card/oz:task:12"), Link::Card("oz:task:12".into()));
-        assert_eq!(parse_link("board://card/../x"), Link::Show);
+        assert_eq!(parse_link("board://card/a%20b"), Link::Show);
         assert_eq!(parse_link("board://add?text=Buy%20milk"), Link::Add("Buy milk".into()));
         assert_eq!(parse_link("board://pair?code=x&cid=y&secret=z"), Link::Refused);
         assert_eq!(parse_link("board://open?url=https://evil.example/oz/"), Link::Refused);

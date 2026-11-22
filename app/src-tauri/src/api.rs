@@ -90,7 +90,7 @@ pub enum ApiError {
     Revoked,
     NotPaired,
     Status(u16, String),
-    Network(String),
+    Network(#[allow(dead_code)] String),
 }
 
 impl std::fmt::Display for ApiError {
