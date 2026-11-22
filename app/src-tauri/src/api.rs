@@ -173,6 +173,13 @@ impl Api {
         serde_json::from_str(&text).map_err(|e| ApiError::Network(e.to_string()))
     }
 
+    /// One waiting card (404 once it's answered), for a notification answered after the app restarted.
+    pub async fn card(&self, cred: &Credential, id: &str) -> Result<crate::logic::Item, ApiError> {
+        let path = format!("/api/device/cards/{}", url::form_urlencoded::byte_serialize(id.as_bytes()).collect::<String>());
+        let text = self.signed(cred, reqwest::Method::GET, &path, None).await?;
+        serde_json::from_str(&text).map_err(|e| ApiError::Network(e.to_string()))
+    }
+
     pub async fn work(&self, cred: &Credential) -> Result<Work, ApiError> {
         let text = self.signed(cred, reqwest::Method::GET, "/api/device/work", None).await?;
         serde_json::from_str(&text).map_err(|e| ApiError::Network(e.to_string()))

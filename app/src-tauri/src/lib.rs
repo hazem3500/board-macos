@@ -435,10 +435,28 @@ pub(crate) fn on_notification(response: mac::Response) {
             let _ = app.run_on_main_thread(move || open_in_main(&app2, card_url(&card, None)));
         }
         mac::Response::Option(card, index) => {
-            let option = s.state.lock().unwrap().known.get(&card).and_then(|i| i.ordered_options().get(index).cloned());
-            if let Some(option) = option {
-                answer(&app, card, Answer::Option(option));
-            }
+            let known = s.state.lock().unwrap().known.get(&card).cloned();
+            tauri::async_runtime::spawn(async move {
+                // After a restart the app hasn't read this card yet: fetch it (it must still be waiting).
+                let item = match known {
+                    Some(item) => Some(item),
+                    None => {
+                        let s = shared(&app);
+                        let cred = s.cred.lock().unwrap().clone();
+                        match cred {
+                            Some(cred) => s.api.card(&cred, &card).await.ok(),
+                            None => None,
+                        }
+                    }
+                };
+                match item.and_then(|i| i.ordered_options().get(index).cloned()) {
+                    Some(option) => answer(&app, card, Answer::Option(option)),
+                    None => {
+                        let app2 = app.clone();
+                        let _ = app.run_on_main_thread(move || open_in_main(&app2, card_url(&card, None)));
+                    }
+                }
+            });
         }
         mac::Response::Reply(card, text) => {
             let text = text.trim().to_string();
